@@ -51,6 +51,12 @@ h1{font-size:22px;margin:5px 0 4px}.temp{font-size:62px;font-weight:300;line-hei
 footer{text-align:center;font-size:10px;opacity:.72;padding:12px}
 .status{font-size:12px;opacity:.85;margin:10px 2px}.error{color:#fff3c4}
 @media(max-width:420px){.wrap{padding:13px 10px}.card{padding:15px}.day{grid-template-columns:72px 25px 1fr 38px;gap:6px}.temp{font-size:56px}}
+
+.video-frame{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:14px;background:rgba(0,25,50,.35);margin-top:12px}
+.video-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.video-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
+.video-link{display:inline-block;color:#07558b;background:#fff;text-decoration:none;font-weight:bold;font-size:13px;padding:11px 14px;border-radius:11px}
+.video-note{font-size:12px;line-height:1.5;opacity:.85;margin:10px 0 0}
 </style>
 </head>
 <body>
@@ -66,10 +72,33 @@ footer{text-align:center;font-size:10px;opacity:.72;padding:12px}
   <a href="#radar">◉ &nbsp; Live Radar</a>
   <a href="#hourly-section">◷ &nbsp; Next 24 Hours</a>
   <a href="#forecast-section">☀ &nbsp; Extended Forecast</a>
+  <a href="#latest-videos">▶ &nbsp; Latest Videos</a>
   <a href="city-forecasts.html">▦ &nbsp; City Forecasts</a>
   <a href="active-weather-alerts.html">⚠ &nbsp; Active Weather Alerts</a>
   <a href="#coverage">⌖ &nbsp; Coverage Area</a>
 </nav>
+
+<section class="card" id="latest-videos">
+  <div class="radar-heading">
+    <h3 style="margin:0">MY LATEST VIDEOS</h3>
+    <span class="radar-live">STORM TEAM 105</span>
+  </div>
+  <div class="video-frame">
+    <iframe
+      src="https://www.youtube-nocookie.com/embed/IYozFwqRDlE"
+      title="Storm Team 105 - Our Brand New Website"
+      loading="lazy"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      allowfullscreen>
+    </iframe>
+  </div>
+  <div class="video-actions">
+    <a class="video-link" href="https://www.youtube.com/@StormTeam105/videos" target="_blank" rel="noopener">View All Videos on YouTube ↗</a>
+  </div>
+  <p class="video-note">Watch regular Storm Team 105 videos here. Use “View All Videos” to browse the channel’s Videos tab; Shorts are not the destination for this section.</p>
+</section>
+
 
 <div class="location">
   <input id="place" value="Sullivan, IN" aria-label="Location" placeholder="Enter a city, state">
@@ -117,6 +146,9 @@ footer{text-align:center;font-size:10px;opacity:.72;padding:12px}
   <h3 style="margin:0">Extended Forecast</h3>
   <div class="forecast" id="forecast"><div class="status">Loading forecast…</div></div>
 </section>
+
+
+
 <footer>Forecast and alert data: National Weather Service (weather.gov).<br>Storm Team 105 · Wabash Valley</footer>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
