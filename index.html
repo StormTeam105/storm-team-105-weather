@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Storm Team 105 | Wabash Valley Weather</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
 <style>
 :root{--glass:rgba(255,255,255,.15);--line:rgba(255,255,255,.17);--white:#fff}
 *{box-sizing:border-box}
@@ -33,6 +34,14 @@ h1{font-size:22px;margin:5px 0 4px}.temp{font-size:62px;font-weight:300;line-hei
 .forecast{display:grid;gap:0;margin-top:8px}
 .day{display:grid;grid-template-columns:82px 28px 1fr 42px;align-items:center;gap:8px;padding:11px 0;border-bottom:1px solid var(--line);font-size:12px}
 .day:last-child{border:0}.dayname{font-weight:bold}.dayicon{font-size:21px}.daydesc{min-width:0}.daydesc b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.daydesc small{opacity:.78}.daytemp{text-align:right;font-size:15px;font-weight:bold}
+.radar-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.radar-live{font-size:10px;letter-spacing:.7px;background:rgba(255,255,255,.16);border:1px solid var(--line);border-radius:20px;padding:6px 9px}
+#radarMap{height:390px;width:100%;border-radius:14px;overflow:hidden;margin-top:12px;background:#dce8ed}
+.radar-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
+.radar-controls button{border:1px solid var(--line);background:rgba(255,255,255,.13);border-radius:10px;padding:9px 12px;cursor:pointer}
+.radar-time{font-size:12px;opacity:.9;margin-left:auto}
+.radar-counties{font-size:11px;line-height:1.6;opacity:.85;margin:11px 2px 0}
+.leaflet-control-attribution{font-size:9px!important}
 footer{text-align:center;font-size:10px;opacity:.72;padding:12px}
 .status{font-size:12px;opacity:.85;margin:10px 2px}.error{color:#fff3c4}
 @media(max-width:420px){.wrap{padding:13px 10px}.card{padding:15px}.day{grid-template-columns:72px 25px 1fr 38px;gap:6px}.temp{font-size:56px}}
@@ -68,6 +77,22 @@ footer{text-align:center;font-size:10px;opacity:.72;padding:12px}
 </section>
 
 <section class="card">
+  <div class="radar-heading">
+    <h3 style="margin:0">LIVE RADAR</h3>
+    <span class="radar-live">WABASH VALLEY</span>
+  </div>
+  <div id="radarStatus" class="status">Loading radar data…</div>
+  <div id="radarMap" aria-label="Interactive weather radar map of the Wabash Valley"></div>
+  <div class="radar-controls">
+    <button id="radarPlay" type="button">▶ Play</button>
+    <button id="radarRefresh" type="button">↻ Refresh</button>
+    <span id="radarTime" class="radar-time">Waiting for radar…</span>
+  </div>
+  <p class="radar-counties"><b>Coverage:</b> Clay, Daviess, Fountain, Greene, Knox, Lawrence, Martin, Monroe, Owen, Parke, Putnam, Sullivan, Vermillion and Vigo Counties, Indiana, plus Wabash County, Illinois.</p>
+  <p class="radar-counties">Radar imagery: RainViewer · Map: OpenStreetMap. Radar frames are historical scans; the newest available frame may be several minutes old.</p>
+</section>
+
+<section class="card">
   <h3 style="margin:0">Next 24 Hours</h3>
   <div class="hourly" id="hourly"><div class="hour">Loading…</div></div>
 </section>
@@ -78,6 +103,7 @@ footer{text-align:center;font-size:10px;opacity:.72;padding:12px}
 </section>
 <footer>Forecast and alert data: National Weather Service (weather.gov).<br>Storm Team 105 · Wabash Valley</footer>
 </div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
 const $ = id => document.getElementById(id);
 const defaultPoint = {lat:39.0894, lon:-87.4136, name:"Sullivan, IN"};
@@ -128,7 +154,7 @@ async function loadWeather(){
     $("humidity").textContent=obs?.relativeHumidity?.value==null?"—":`${Math.round(obs.relativeHumidity.value)}%`;
     $("shortcondition").textContent=currentText;
     $("details").textContent=periods[0]?.detailedForecast||"No detailed forecast is currently available.";
-    $("hourly").innerHTML=hours.slice(0,4).map(p=>`<div class="hour">${new Date(p.startTime).toLocaleTimeString([], {hour:"numeric"})}<strong>${f(p.temperature)}°</strong>${iconFor(p.shortForecast)}<br>${p.probabilityOfPrecipitation?.value??0}% rain</div>`).join("");
+    $("hourly").innerHTML=hours.slice(0,4).map(p=>`<div class="hour">${new Date(p.startTime).toLocaleTimeString([], {hour:"numeric"})}<strong>${p.temperature}°</strong>${iconFor(p.shortForecast)}<br>${p.probabilityOfPrecipitation?.value??0}% rain</div>`).join("");
     const daily=[];
     for(const p of periods){
       if(p.isDaytime || daily.length===0) daily.push(p);
@@ -142,6 +168,54 @@ async function loadWeather(){
     $("status").className="status error";
   }
 }
+// Wabash Valley radar map (RainViewer historical radar tiles)
+let radarMap=null, radarLayer=null, radarFrames=[], radarIndex=0, radarTimer=null;
+const radarBounds=[[37.85,-88.15],[40.35,-86.20]];
+function initRadarMap(){
+  if(radarMap) return;
+  radarMap=L.map("radarMap",{zoomControl:true,scrollWheelZoom:true,minZoom:5,maxZoom:9}).fitBounds(radarBounds);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+    subdomains:"abc",maxZoom:19,attribution:"&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors"
+  }).addTo(radarMap);
+}
+function showRadarFrame(index){
+  if(!radarFrames.length) return;
+  radarIndex=(index+radarFrames.length)%radarFrames.length;
+  const frame=radarFrames[radarIndex];
+  const tileUrl=`${window.radarHost}${frame.path}/256/{z}/{x}/{y}/2/1_0.png`;
+  if(radarLayer) radarMap.removeLayer(radarLayer);
+  radarLayer=L.tileLayer(tileUrl,{opacity:.72,maxNativeZoom:7,maxZoom:9, zIndex:10, attribution:"Radar: <a href=\"https://www.rainviewer.com/\">RainViewer</a>"}).addTo(radarMap);
+  const t=new Date(frame.time*1000);
+  $("radarTime").textContent=`Radar: ${t.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`;
+}
+async function loadRadar(){
+  $("radarStatus").textContent="Updating radar imagery…";
+  try{
+    initRadarMap();
+    const response=await fetch("https://api.rainviewer.com/public/weather-maps.json",{cache:"no-store"});
+    if(!response.ok) throw new Error(`Radar service returned ${response.status}`);
+    const data=await response.json();
+    window.radarHost=data.host;
+    radarFrames=data.radar?.past||[];
+    if(!radarFrames.length) throw new Error("No radar frames are currently available");
+    radarIndex=radarFrames.length-1;
+    showRadarFrame(radarIndex);
+    $("radarStatus").textContent="Radar imagery loaded · Latest available scan";
+  }catch(error){
+    $("radarStatus").textContent=`Radar couldn't load: ${error.message}. Try Refresh.`;
+  }
+}
+function toggleRadar(){
+  if(radarTimer){clearInterval(radarTimer);radarTimer=null;$("radarPlay").textContent="▶ Play";return;}
+  if(!radarFrames.length) return;
+  $("radarPlay").textContent="❚❚ Pause";
+  radarTimer=setInterval(()=>showRadarFrame(radarIndex+1),700);
+}
+$("radarPlay").addEventListener("click",toggleRadar);
+$("radarRefresh").addEventListener("click",loadRadar);
+loadRadar();
+setInterval(loadRadar,10*60*1000);
+
 async function searchPlace(){
   const q=$("place").value.trim();
   if(!q) return;
