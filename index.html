@@ -52,8 +52,12 @@ footer{text-align:center;font-size:10px;opacity:.72;padding:12px}
 .status{font-size:12px;opacity:.85;margin:10px 2px}.error{color:#fff3c4}
 @media(max-width:420px){.wrap{padding:13px 10px}.card{padding:15px}.day{grid-template-columns:72px 25px 1fr 38px;gap:6px}.temp{font-size:56px}}
 
-.video-frame{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:14px;background:rgba(0,25,50,.35);margin-top:12px}
+.video-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:14px}
+.video-item{min-width:0}
+.video-frame{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:14px;background:rgba(0,25,50,.35)}
 .video-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.video-title{font-size:14px;font-weight:700;line-height:1.35;margin:8px 2px 4px}
+.video-date{font-size:11px;opacity:.75;margin:0 2px}
 .video-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
 .video-link{display:inline-block;color:#07558b;background:#fff;text-decoration:none;font-weight:bold;font-size:13px;padding:11px 14px;border-radius:11px}
 .video-note{font-size:12px;line-height:1.5;opacity:.85;margin:10px 0 0}
@@ -83,20 +87,12 @@ footer{text-align:center;font-size:10px;opacity:.72;padding:12px}
     <h3 style="margin:0">LATEST VIDEO FROM THE STORM TEAM 105 YOUTUBE CHANNEL</h3>
     <span class="radar-live">STORM TEAM 105</span>
   </div>
-  <div class="video-frame">
-    <iframe
-      src="https://www.youtube-nocookie.com/embed/IYozFwqRDlE"
-      title="Storm Team 105 - Our Brand New Website"
-      loading="lazy"
-      referrerpolicy="strict-origin-when-cross-origin"
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-      allowfullscreen>
-    </iframe>
-  </div>
+  <div id="latestVideoStatus" class="status">Loading the latest Storm Team 105 videos…</div>
+  <div class="video-grid" id="latestVideoGrid"></div>
   <div class="video-actions">
     <a class="video-link" href="https://www.youtube.com/@StormTeam105/videos" target="_blank" rel="noopener">View All Videos on YouTube ↗</a>
   </div>
-  <p class="video-note">Watch regular Storm Team 105 videos here. Use “View All Videos” to browse the channel’s Videos tab; Shorts are not the destination for this section.</p>
+  <p class="video-note">This section automatically checks the channel's newest uploads and filters out videos that are 3 minutes or shorter. YouTube does not provide a dependable Shorts label through its public API, so short regular videos may also be filtered out.</p>
 </section>
 
 
@@ -153,6 +149,97 @@ footer{text-align:center;font-size:10px;opacity:.72;padding:12px}
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
+
+// Storm Team 105 latest YouTube videos.
+// Add your restricted YouTube Data API v3 key below. Do not share it publicly.
+const YOUTUBE_API_KEY = "AIzaSyABszdqPEkn5rPZvrIL-dWrstkyN9AnNOE";
+const YOUTUBE_CHANNEL_ID = "UCgPw-qPOcj5cz8oSNuENCVQ";
+const YOUTUBE_MIN_VIDEO_SECONDS = 181; // Automatically omit videos 3:00 or shorter.
+const YOUTUBE_MAX_DISPLAY = 6;
+
+function isoDurationSeconds(iso) {
+  const m = iso.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+  return m ? (Number(m[1]||0)*3600 + Number(m[2]||0)*60 + Number(m[3]||0)) : 0;
+}
+function escapeVideoText(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[ch]));
+}
+async function youtubeJSON(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.error?.message || `YouTube returned ${response.status}`);
+  }
+  return response.json();
+}
+async function loadLatestVideos() {
+  const status = $("latestVideoStatus");
+  const grid = $("latestVideoGrid");
+  if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === "PASTE_YOUR_YOUTUBE_API_KEY_HERE") {
+    status.textContent = "Add your YouTube Data API key in the website code to enable automatic latest videos.";
+    return;
+  }
+  try {
+    const channelURL = new URL("https://www.googleapis.com/youtube/v3/channels");
+    channelURL.search = new URLSearchParams({
+      part:"contentDetails", id:YOUTUBE_CHANNEL_ID, key:YOUTUBE_API_KEY
+    });
+    const channelData = await youtubeJSON(channelURL);
+    const uploadsPlaylist = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+    if (!uploadsPlaylist) throw new Error("The channel uploads playlist could not be found.");
+
+    const playlistURL = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
+    playlistURL.search = new URLSearchParams({
+      part:"snippet", playlistId:uploadsPlaylist, maxResults:"50", key:YOUTUBE_API_KEY
+    });
+    const playlistData = await youtubeJSON(playlistURL);
+    const ids = (playlistData.items || [])
+      .map(item => item.snippet?.resourceId?.videoId)
+      .filter(Boolean);
+    if (!ids.length) throw new Error("No channel uploads were found.");
+
+    const videosURL = new URL("https://www.googleapis.com/youtube/v3/videos");
+    videosURL.search = new URLSearchParams({
+      part:"snippet,contentDetails", id:ids.join(","), key:YOUTUBE_API_KEY
+    });
+    const videosData = await youtubeJSON(videosURL);
+    const newestRegularVideos = (videosData.items || [])
+      .filter(video => isoDurationSeconds(video.contentDetails?.duration || "PT0S") >= YOUTUBE_MIN_VIDEO_SECONDS)
+      .sort((a,b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt))
+      .slice(0, YOUTUBE_MAX_DISPLAY);
+
+    if (!newestRegularVideos.length) {
+      status.textContent = "No videos longer than 3 minutes were found in the channel's latest 50 uploads.";
+      return;
+    }
+
+    grid.innerHTML = newestRegularVideos.map(video => {
+      const id = encodeURIComponent(video.id);
+      const title = escapeVideoText(video.snippet.title);
+      const published = new Date(video.snippet.publishedAt).toLocaleDateString([], {
+        year:"numeric", month:"short", day:"numeric"
+      });
+      return `<article class="video-item">
+        <div class="video-frame">
+          <iframe src="https://www.youtube-nocookie.com/embed/${id}"
+            title="${title}" loading="lazy"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen></iframe>
+        </div>
+        <div class="video-title">${title}</div>
+        <p class="video-date">Published ${published}</p>
+      </article>`;
+    }).join("");
+    status.textContent = `Showing the ${newestRegularVideos.length} latest videos (Shorts-length uploads filtered out).`;
+  } catch (error) {
+    status.textContent = `Latest videos could not be loaded: ${error.message}`;
+    status.className = "status error";
+  }
+}
+
 const $ = id => document.getElementById(id);
 const defaultPoint = {lat:39.0894, lon:-87.4136, name:"Sullivan, IN"};
 let point = {...defaultPoint};
@@ -275,6 +362,7 @@ async function searchPlace(){
     const p=data.results[0];
     point={lat:p.latitude,lon:p.longitude,name:`${p.name}, ${p.admin1||p.country||""}`};
     await loadWeather();
+loadLatestVideos();
   }catch(e){$("status").textContent=e.message;$("status").className="status error";}
 }
 $("search").addEventListener("click",searchPlace);
